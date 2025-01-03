@@ -17,9 +17,9 @@ def parse_results(filename):
             size = int(size_match.group(1))
             
             # Extract mean and stddev
-            stats_match = re.search(r'mean±stddev\): \d+, \d+, (\d+) ± (\d+)', line)
-            mean_val = int(stats_match.group(1))
-            stddev_val = int(stats_match.group(2))
+            stats_match = re.search(r'mean±stddev\): \d+, \d+, ([\d.]+) ± ([\d.]+)', line)
+            mean_val = float(stats_match.group(1))
+            stddev_val = float(stats_match.group(2))
             
             sizes.append(size)
             means.append(mean_val)
