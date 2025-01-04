@@ -9,12 +9,14 @@ def parse_results(filename):
     sizes = []
     means = []
     stddevs = []
+    densities = []
     
     with open(filename, 'r') as f:
         for line in f:
-            # Extract grid size (we only need one dimension since it's square)
             size_match = re.search(r'size (\d+)×\d+', line)
+            density_match = re.search(r'density ([\d.]+)', line)
             size = int(size_match.group(1))
+            density = float(density_match.group(1))
             
             # Extract mean and stddev
             stats_match = re.search(r'mean±stddev\): \d+, \d+, ([\d.]+) ± ([\d.]+)', line)
@@ -24,38 +26,46 @@ def parse_results(filename):
             sizes.append(size)
             means.append(mean_val)
             stddevs.append(stddev_val)
+            densities.append(density)
     
-    return sizes, means, stddevs
+    return sizes, means, stddevs, densities
 
-def create_plot(sizes, means, stddevs):
+def create_plot(sizes, means, stddevs, densities):
     plt.figure(figsize=(10, 6))
     
-    # Plot mean values with error bars (1 standard deviation)
-    plt.errorbar(sizes, means, 
-                yerr=stddevs,
-                fmt='o-', capsize=5, capthick=1.0, elinewidth=1.0, markersize=5,
-                color='blue')
+    # Get unique densities and assign colors
+    unique_densities = sorted(set(densities))
+    colors = plt.cm.tab10(np.linspace(0, 1, len(unique_densities)))
+    
+    # Plot points for each density value
+    for density, color in zip(unique_densities, colors):
+        mask = [t == density for t in densities]
+        plt.errorbar(
+            [sizes[i] for i in range(len(sizes)) if mask[i]],
+            [means[i] for i in range(len(means)) if mask[i]],
+            yerr=[stddevs[i] for i in range(len(stddevs)) if mask[i]],
+            fmt='o-', capsize=5, capthick=1.0, elinewidth=1.0, markersize=5,
+            color=color, label=f'Density = {density:.2f}'
+        )
     
     # Customize the plot
     plt.xlabel('N (Grid is N×N)', fontsize=12)
     plt.xticks(sizes, fontsize=8)
     plt.ylabel('Number of Steps', fontsize=12)
-    plt.title('Mean steps to 90% aggregation for 10% density', fontsize=14)
+    plt.title('Mean steps to large cluster with 90% threshold', fontsize=14)
     plt.grid(True, linestyle='--', alpha=0.7)
+    plt.legend()
     
-    # Ensure a tight layout
     plt.tight_layout()
-    
-    # Save the plot
-    plt.savefig('results_plot.png', dpi=72, bbox_inches='tight')
+    plt.savefig('results.png', dpi=72, bbox_inches='tight')
     plt.show()
 
 def main():
     # Parse the data
-    sizes, means, stddevs = parse_results('results.txt')
+    sizes, means, stddevs, densities = parse_results('results.txt')
     
     # Create and save the plot
-    create_plot(sizes, means, stddevs)
+    create_plot(sizes, means, stddevs, densities)
 
 if __name__ == "__main__":
     main()
