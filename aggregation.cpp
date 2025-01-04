@@ -22,31 +22,34 @@ typedef int64_t i64;
 typedef float f32;
 typedef double f64;
 
+// TODO Unit tests, and end-to-end tests.
+
 // Note: Y-axis is positive in downward direction.
 typedef struct point {
     i32 x = 0;
     i32 y = 0;
 } point;
 
-// TODO AABBs on a torus are tricky to get right. Fix this.
-typedef struct aabb {
-    // Guarantees:
-    //   0 <= xmin <= xmax
-    //   0 <= ymin <= ymax
-    //   xmin < width
-    //   ymin < height
-    // It's _not_ guaranteed that xmax < width, or ymax < height (our world is a torus).
+// A "Toroidal AABB" (Axis-Aligned Bounding Box) comprises a "toroidal interval" for each axis.
+// The semantics for a toroidal interval is as follows, where N is width (for x axis) or height (for y axis).
+//   It's always the case that min and max satisfy 0 <= min < N and 0 <= max < N.
+//   if (min == max): All points x in body satisfy x == min (== max).
+//   if (min < max): All points x in body satisfy min <= x <= max.
+//            (This includes the case 0 == min && max == width - 1, which is the trivial bounding interval.)
+//   if (max < min): All points x satisfy either 0 <= x <= max or min <= x < width.
+//            (This is the "wraparound" case, where the body straddles 0 for this axis.)
+typedef struct taabb {
     i32 xmin = 0;
     i32 xmax = 0;
     i32 ymin = 0;
     i32 ymax = 0;
-} aabb;
+} taabb;
 
 typedef struct cluster {
     std::vector<point> points = {};
     // The bounding box is not guaranteed minimal. E.g., it does _not_ take into account the fact that the world is a
     // torus. E.g., if the cluster straddles both the X and Y axis, then the bounding box may be the entire world.
-    aabb bounds = {};
+    taabb bounds = {};
     u32 color = WHITE;
 } cluster;
 
@@ -56,55 +59,115 @@ typedef struct world {
     std::vector<cluster> clusters = {};
 } world;
 
-void expand_aabb(aabb *rect, point p) {
-    rect->xmin = std::min(rect->xmin, p.x);
-    rect->xmax = std::max(rect->xmax, p.x);
-    rect->ymin = std::min(rect->ymin, p.y);
-    rect->ymax = std::max(rect->ymax, p.y);
+
+// Given a bitmap, set (min, max) to a toroidal interval that contains all 1's in the bitmap.  The interval is
+// guaranteed to contain all 1's, and is guaranteed to be minimal if the bitmap's 1's are contiguous (i.e., connected in
+// the 1-torus).
+void make_taabb_1D(const std::vector<u8> &bitmap, i32 *min, i32 *max) {
+    bool started = false;
+    bool ended = false;
+    u32 n = bitmap.size();
+    *min = 0;
+    *max = 0;
+    for (int x = 0; x < n; ++x) {
+        if (!started) {
+            if (bitmap[x]) {
+                *min = x;
+                *max = n - 1;
+                started = true;
+            }
+        }
+        else {  // started
+            if (!ended) {
+                if (!bitmap[x]) {
+                    *max = x - 1;
+                    ended = true;
+                }
+            }
+            else {  // ended
+                if (bitmap[x]) {
+                    // Wraparound for this axis.
+                    *min = x;
+                    break;
+                }
+            }
+        }
+    }
 }
 
-// TODO This makes overly-large AABBs because it doesn't consider clusters that straddle the axes.
-aabb make_aabb(std::vector<point> points) {
-    aabb result;
+// Return a TAABB containing all given points. The TAABB is guaranteed to be minimal, provided that (a) points is
+// nonempty, and (b) points is contiguous (i.e., connected in the torus).
+taabb make_taabb(std::vector<point> points, i32 w, i32 h) {
     if (points.size() == 0) {
-        return result;
+        // We don't allow empty TAABBs, so we return the smallest-possible nonempty TAABB.
+        return { 0, 0, 0, 0 };
     }
-    result = {points[0].x, points[0].x,
-              points[0].y, points[0].y};
-    for (int i = 1; i < points.size(); ++i) {
-        expand_aabb(&result, points[i]);
+    if (points.size() == 1) {
+        // Save time.
+        return { .xmin = points[0].x, .xmax = points[0].x,
+                 .ymin = points[0].y, .ymax = points[0].y };
     }
+    // TODO Save more time for tiny collections (fall back on make_aabb algorithm, perhaps)? Must first check whether
+    // that is actually significantly faster.
+
+    // Bitmaps.
+    std::vector<u8> xs(w, 0);
+    std::vector<u8> ys(h, 0);
+    for (const point &p : points) {
+        xs[p.x] = 1;
+        ys[p.y] = 1;
+    }
+
+    taabb result;
+    make_taabb_1D(xs, &result.xmin, &result.xmax);
+    make_taabb_1D(ys, &result.ymin, &result.ymax);
     return result;
 }
 
-aabb merge_aabb(const aabb a, const aabb b) {
-    aabb result;
-    result.xmin = std::min(a.xmin, b.xmin);
-    result.xmax = std::max(a.xmax, b.xmax);
-    result.ymin = std::min(a.ymin, b.ymin);
-    result.ymax = std::max(a.ymax, b.ymax);
-    return result;
+// Test whether two toroidal intervals touch.
+// See definition of TAABB for specification of toroidal interval.
+// Parameters:
+//   a_min, a_max: First toroidal interval.
+//   b_min, b_max: Second toroidal interval.
+//   n: Size of torus, [0, ..., n). Must be greater than or equal to 1.
+// Return:
+//   true: the intervals may be touching (i.e., there may be two points of distance 0 or 1).
+//   false: the intervals are definitely not touching (i.e., distance is at least 2).
+bool touching_1D(i32 a_min, i32 a_max, i32 b_min, i32 b_max, i32 n) {
+    if (a_min <= a_max && b_min <= b_max) {
+        // Neither interval wraps around.
+        if (b_max + 1 < a_min) return (b_min == 0) && (a_max == n-1);
+        if (a_max + 1 < b_min) return (a_min == 0) && (b_max == n-1);
+        return true;
+    }
+    else if (a_min > a_max && b_min <= b_max) {
+        // Only interval A wraps around.
+        return (b_min <= a_max + 1) || (a_min - 1 <= b_max);
+    }
+    else if (a_min <= a_max && b_min > b_max) {
+        // Only interval B wraps around.
+        return (a_min <= b_max + 1) || (b_min - 1 <= a_max);
+    }
+    else {
+        // Both intervals wrap around.
+        return true;
+    }
 }
 
-// Return true if the two AABBs might be touching.
-// (Note this may sometimes return true when they are not touching.)
-bool touching(const aabb a, const aabb b) {
-    if (a.xmin > b.xmax + 1) return false;
-    if (a.ymin > b.ymax + 1) return false;
-    if (b.xmin > a.xmax + 1) return false;
-    if (b.ymin > a.ymax + 1) return false;
-    return true;
+// Return true if the two TAABBs might be touching.
+// (This may sometimes return true even when they are not touching.)
+bool touching(const taabb a, const taabb b, i32 w, i32 h) {
+    return
+        touching_1D(a.xmin, a.xmax, b.xmin, b.xmax, w) &&
+        touching_1D(a.ymin, a.ymax, b.ymin, b.ymax, h);
 }
 
-// Return true if the point might be touching (i.e., adjacent to or overlapping) the aabb.
+// Return true if the point might be touching (i.e., adjacent to or overlapping) the TAABB.
 // (Note this may sometimes return true when they are not touching.)
-bool touching(const point p, const aabb rect, i32 w, i32 h) {
-    // The second conjunct checks the wrap-around case (due to toroidal lattice).
-    if (rect.xmax + 1 < p.x && !(p.x == w-1 && rect.xmin == 0)) return false;
-    if (p.x + 1 < rect.xmin && !(p.x == 0 && rect.xmax == w-1)) return false;
-    if (rect.ymax + 1 < p.y && !(p.y == h-1 && rect.ymin == 0)) return false;
-    if (p.y + 1 < rect.ymin && !(p.y == 0 && rect.ymax == h-1)) return false;
-    return true;
+bool touching(const point p, const taabb rect, i32 w, i32 h) {
+    return
+        touching_1D(p.x, p.x, rect.xmin, rect.xmax, w) &&
+        touching_1D(p.y, p.y, rect.ymin, rect.ymax, h);
 }
 
 // Will find the cluster at (x, y), remove it from grid, and load it into c.
@@ -135,7 +198,7 @@ cluster extract_cluster(u8 *grid, i32 w, i32 h, i32 x, i32 y) {
             }
         }
     }
-    c.bounds = make_aabb(c.points);
+    c.bounds = make_taabb(c.points, w, h);
     return c;
 }
 
@@ -157,7 +220,8 @@ void populate(world *wld, i32 w, i32 h, f64 density) {
         for (int j = 0; j < w; ++j) {
             // TODO Improve RNG
             //   - our own RNG, e.g., JSF
-            //   - option to populate combinatorially (n choose k), with density exactly as given
+            //   - option to provide seed on command line
+            //   - option to populate combinatorially (n choose k), with density _exactly_ as given.
             grid[i * w + j] = rand() <= (f64)RAND_MAX * density;
         }
     }
@@ -212,7 +276,7 @@ bool contact(const cluster &a, const cluster &b, i32 w, i32 h) {
 
     // Do some preliminary checks to save work (otherwise, the time is quadratic in cluster size).
 
-    if (!touching(a.bounds, b.bounds)) {
+    if (!touching(a.bounds, b.bounds, w, h)) {
         return false;
     }
 
@@ -270,8 +334,8 @@ void evolve(world *wld) {
         //cj->bounds.ymin += dy;
         //cj->bounds.ymax += dy;
 
-        // For now, just re-generate AABBs at every step -- this is quite slow, but better than nothing.
-        cj->bounds = make_aabb(cj->points);
+        // For now, just re-generate TAABBs at every step -- this is slow, but better than nothing.
+        cj->bounds = make_taabb(cj->points, wld->w, wld->h);
 
         // Check for collisions with other clusters, and merge if needed.
 
@@ -293,9 +357,9 @@ void evolve(world *wld) {
                 }
                 cj->points.insert(cj->points.end(), ck->points.begin(), ck->points.end());
 
-                // TODO Smarter AABB merging.
-                //cj->bounds = merge_aabb(cj->bounds, ck->bounds);
-                cj->bounds = make_aabb(cj->points);
+                // TODO Smarter TAABB merging.
+                //cj->bounds = merge_taabb(cj->bounds, ck->bounds);
+                cj->bounds = make_taabb(cj->points, wld->w, wld->h);
 
                 // Note that this wastes cluster k's thermal energy for this step when k > j.
                 clusters.erase(clusters.begin() + k);
