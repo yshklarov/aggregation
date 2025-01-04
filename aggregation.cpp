@@ -272,8 +272,6 @@ inline i32 distance(const point &a, const point &b, i32 w, i32 h) {
 }
 
 bool contact(const cluster &a, const cluster &b, i32 w, i32 h) {
-    // TODO This is slow when both clusters wrap around the axes, because the AABBs span the entire world.
-
     // Do some preliminary checks to save work (otherwise, the time is quadratic in cluster size).
 
     if (!touching(a.bounds, b.bounds, w, h)) {
@@ -328,14 +326,15 @@ void evolve(world *wld) {
             p.y = (p.y + dy) % wld->h;
         }
 
-        // TODO Buggy: When AABBs move across X/Y axis, this can break.
-        //cj->bounds.xmin += dx;
-        //cj->bounds.xmax += dx;
-        //cj->bounds.ymin += dy;
-        //cj->bounds.ymax += dy;
-
-        // For now, just re-generate TAABBs at every step -- this is slow, but better than nothing.
-        cj->bounds = make_taabb(cj->points, wld->w, wld->h);
+        // Slide the TAABB (this is faster than calling make_taabb()).
+        cj->bounds.xmin += dx;
+        cj->bounds.xmax += dx;
+        cj->bounds.ymin += dy;
+        cj->bounds.ymax += dy;
+        cj->bounds.xmin %= wld->w;
+        cj->bounds.xmax %= wld->w;
+        cj->bounds.ymin %= wld->h;
+        cj->bounds.ymax %= wld->h;
 
         // Check for collisions with other clusters, and merge if needed.
 
@@ -450,7 +449,7 @@ i32 run(world *wld, f64 threshold, bool display = true, bool verbose = false) {
         prev_render = fenster_time();
         render(wld, &f);
     }
-    while (true) {
+    while (!completed) {
         if (display && fenster_loop(&f) != 0) {
             break;
         }
@@ -462,14 +461,14 @@ i32 run(world *wld, f64 threshold, bool display = true, bool verbose = false) {
         }
         if (agglom >= agglom_target) {
             completed = true;
-            break;
         }
-
-        evolve(wld);
-        ++step;
+        else {
+            evolve(wld);
+            ++step;
+        }
         if (display) {
             i64 now = fenster_time();
-            if (now - prev_render > 1000/FPS) {
+            if (now - prev_render > 1000/FPS || completed) {
                 prev_render = now;
                 render(wld, &f);
             }
@@ -478,6 +477,12 @@ i32 run(world *wld, f64 threshold, bool display = true, bool verbose = false) {
     }
 
     if (display) {
+        if (completed) {
+            // Display the final configuration.
+            //fenster_loop(&f);
+            // Pause before closing window.
+            //fenster_sleep(1000);
+        }
         fenster_close(&f);
     }
     if (completed) {
