@@ -30,8 +30,8 @@ def parse_results(filename):
     
     return sizes, means, stddevs, densities
 
-def create_plot(sizes, means, stddevs, densities):
-    plt.figure(figsize=(10, 6))
+def create_plot(sizes, means, stddevs, densities, errorbars=True):
+    plt.figure(figsize=(10, 10))
     
     # Get unique densities and assign colors
     unique_densities = sorted(set(densities))
@@ -40,13 +40,21 @@ def create_plot(sizes, means, stddevs, densities):
     # Plot points for each density value
     for density, color in zip(unique_densities, colors):
         mask = [t == density for t in densities]
-        plt.errorbar(
-            [sizes[i] for i in range(len(sizes)) if mask[i]],
-            [means[i] for i in range(len(means)) if mask[i]],
-            yerr=[stddevs[i] for i in range(len(stddevs)) if mask[i]],
-            fmt='o-', capsize=5, capthick=1.0, elinewidth=1.0, markersize=5,
-            color=color, label=f'Density = {density:.2f}'
-        )
+        if errorbars:
+            plt.errorbar(
+                [sizes[i] for i in range(len(sizes)) if mask[i]],
+                [means[i] for i in range(len(means)) if mask[i]],
+                yerr=[stddevs[i] for i in range(len(stddevs)) if mask[i]],
+                fmt='o-', capsize=3, capthick=0.5, elinewidth=0.5, markersize=4,
+                color=color, label=f'Density = {density:.2f}'
+            )
+        else:
+            plt.plot(
+                [sizes[i] for i in range(len(sizes)) if mask[i]],
+                [means[i] for i in range(len(means)) if mask[i]],
+                'o-',
+                markersize=4, color=color, label=f'Density = {density:.2f}'
+            )
     
     # Customize the plot
     plt.xlabel('N (Grid is N×N)', fontsize=12)
@@ -65,7 +73,7 @@ def main():
     sizes, means, stddevs, densities = parse_results('results.txt')
     
     # Create and save the plot
-    create_plot(sizes, means, stddevs, densities)
+    create_plot(sizes, means, stddevs, densities, False)
 
 if __name__ == "__main__":
     main()
