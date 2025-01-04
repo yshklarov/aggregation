@@ -31,7 +31,7 @@ def parse_results(filename):
     return sizes, means, stddevs, densities
 
 def create_plot(sizes, means, stddevs, densities, errorbars=True):
-    plt.figure(figsize=(10, 10))
+    plt.figure(figsize=(10, 8))
     
     # Get unique densities and assign colors
     unique_densities = sorted(set(densities))
@@ -58,7 +58,7 @@ def create_plot(sizes, means, stddevs, densities, errorbars=True):
     
     # Customize the plot
     plt.xlabel('N (Grid is N×N)', fontsize=12)
-    plt.xticks(sizes, fontsize=8)
+    plt.xticks(sizes, fontsize=7)
     plt.ylabel('Number of Steps', fontsize=12)
     plt.title('Mean steps to large cluster with 90% threshold', fontsize=14)
     plt.grid(True, linestyle='--', alpha=0.7)
