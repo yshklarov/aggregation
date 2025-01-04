@@ -453,12 +453,15 @@ int main(int argc, char **argv) {
 
     if (trials <= 0 || w <= 0 || h <= 0) {
         fprintf(stderr, "Invalid parameters.\n");
+        return 1;
     }
     if (density < 0.0 || density >= 1.0) {
         fprintf(stderr, "Invalid density.\n");
+        return 1;
     }
-    if (threshold < 0.0 || threshold >= 1.0) {
+    if (threshold < 0.0 || threshold > 1.0) {
         fprintf(stderr, "Invalid threshold.\n");
+        return 1;
     }
 
 
