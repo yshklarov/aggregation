@@ -96,6 +96,17 @@ bool touching(const aabb a, const aabb b) {
     return true;
 }
 
+// Return true if the point might be touching (i.e., adjacent to or overlapping) the aabb.
+// (Note this may sometimes return true when they are not touching.)
+bool touching(const point p, const aabb rect, i32 w, i32 h) {
+    // The second conjunct checks the wrap-around case (due to toroidal lattice).
+    if (rect.xmax + 1 < p.x && !(p.x == w-1 && rect.xmin == 0)) return false;
+    if (p.x + 1 < rect.xmin && !(p.x == 0 && rect.xmax == w-1)) return false;
+    if (rect.ymax + 1 < p.y && !(p.y == h-1 && rect.ymin == 0)) return false;
+    if (p.y + 1 < rect.ymin && !(p.y == 0 && rect.ymax == h-1)) return false;
+    return true;
+}
+
 // Will find the cluster at (x, y), remove it from grid, and load it into c.
 // Precondition: grid[y*w + x] == 1.
 cluster extract_cluster(u8 *grid, i32 w, i32 h, i32 x, i32 y) {
@@ -124,8 +135,7 @@ cluster extract_cluster(u8 *grid, i32 w, i32 h, i32 x, i32 y) {
             }
         }
     }
-    // Superfluous for the time being.
-    //c.bounds = make_aabb(c.points);
+    c.bounds = make_aabb(c.points);
     return c;
 }
 
@@ -198,23 +208,47 @@ inline i32 distance(const point &a, const point &b, i32 w, i32 h) {
 }
 
 bool contact(const cluster &a, const cluster &b, i32 w, i32 h) {
+    // TODO This is slow when both clusters wrap around the axes, because the AABBs span the entire world.
+
+    // Do some preliminary checks to save work (otherwise, the time is quadratic in cluster size).
+
     if (!touching(a.bounds, b.bounds)) {
         return false;
     }
-    for (const auto &p1 : a.points) {
-        for (const auto &p2 : b.points) {
+
+    std::vector<point> a_test_points;
+    std::vector<point> b_test_points;
+    for (const auto &p : a.points) {
+        if (touching(p, b.bounds, w, h)) {
+            a_test_points.push_back(p);
+        }
+    }
+    for (const auto &p : b.points) {
+        if (touching(p, a.bounds, w, h)) {
+            b_test_points.push_back(p);
+        }
+    }
+
+    for (const auto &p1 : a_test_points) {
+        for (const auto &p2 : b_test_points) {
             if (distance(p1, p2, w, h) <= 1) {
                 return true;
             }
         }
     }
+
     return false;
 }
 
 void evolve(world *wld) {
     std::vector<cluster> &clusters = wld->clusters;
-    for (auto &c : wld->clusters) {
-        // Need this instead of 0 to deal with C modulo operator shenanigans.
+    u32 nclusters = clusters.size();
+
+    // Move each cluster, checking for collisions and merging.
+    for (u32 j = 0; j < nclusters; ++j) {
+        cluster &cj = clusters[j];
+
+        // We need this instead of 0 to deal with C modulo operator shenanigans.
         int dx = wld->w;
         int dy = wld->h;
         switch (rand() % 4) {
@@ -224,21 +258,55 @@ void evolve(world *wld) {
         case 2: dy += 1; break;
         case 3: dy -= 1; break;
         }
-        for (auto &p : c.points) {
+        for (auto &p : cj.points) {
             p.x = (p.x + dx) % wld->w;
             p.y = (p.y + dy) % wld->h;
         }
+
         // TODO Buggy: When AABBs move across X/Y axis, this can break.
-        //c.bounds.xmin += dx;
-        //c.bounds.xmax += dx;
-        //c.bounds.ymin += dy;
-        //c.bounds.ymax += dy;
+        //cj.bounds.xmin += dx;
+        //cj.bounds.xmax += dx;
+        //cj.bounds.ymin += dy;
+        //cj.bounds.ymax += dy;
+
         // For now, just re-generate AABBs at every step -- this is quite slow, but better than nothing.
-        c.bounds = make_aabb(c.points);
+        cj.bounds = make_aabb(cj.points);
+
+        // Check for collisions with other clusters, and merge if needed.
+
+        // Note: It's simpler to check for collisions here, rather than first moving all the clusters and then checking
+        // for collisions. If we checked for collisions after moving all clusters, we could end up with "overlap" where
+        // two clusters move onto one another simultaneously, in which case we'd need to undo one or more translations.
+/*
+        for (u32 k = 0; k < nclusters; ++k) {
+            // Clusters of index k < j have already moved.
+            // Cluster of index k == j is the one we've moved just now.
+            // Clusters of index k > j have yet to be moved.
+            if (k == j) {
+                continue;
+            }
+            cluster &ck = clusters[k];
+            if (contact(cj, ck, wld->w, wld->h)) {
+                if (cj.points.size() < ck.points.size()) {
+                    // Keep the color of the larger cluster.
+                    cj.color = ck.color;
+                }
+                cj.points.insert(cj.points.begin(), ck.points.begin(), ck.points.end());
+                // TODO Smarter AABB merging.
+                //cj.bounds = merge_aabb(cj.bounds, ck.bounds);
+                clusters.erase(clusters.begin() + k);
+                --nclusters;
+                if (k  < j) {
+                    --j;
+                    --k;
+                }
+            }
+        }*/
     }
 
     // Check clusters for collisions, and merge if needed.
-    u32 nclusters = clusters.size();
+
+    nclusters = clusters.size();
     for (u32 j = 0; j < nclusters; ++j) {
         for (u32 k = j+1; k < nclusters; ++k) {
             cluster &cj = clusters[j];
@@ -255,11 +323,10 @@ void evolve(world *wld) {
                 //cj.bounds = merge_aabb(cj.bounds, ck.bounds);
                 clusters.erase(clusters.begin() + k);
                 --nclusters;
+                --k;
             }
         }
     }
-    // TODO Come up with a better way to deal with overlapping (clusters running into and over each other) -- it
-    // should not destroy mass or have "overlapping" mass.
 }
 
 void render(const world *wld, const fenster *f) {
@@ -386,12 +453,12 @@ int main(int argc, char **argv) {
     f64 mean_steps = 0.0;
     f64 sum_sqr_steps = 0.0;
     f64 stddev_steps = 0.0;
-    for (i32 i = 0; i < trials; ++i) {
+    for (i32 i = 1; i <= trials; ++i) {
         printf("Running trial %d/%d...\n", i, trials);
         populate(&wld, w, h, density);
         i32 steps = run(&wld, threshold, display, false);
         destroy(&wld);
-        min_steps = (i == 0) ? steps : std::min(min_steps, steps);
+        min_steps = (i == 1) ? steps : std::min(min_steps, steps);
         max_steps = std::max(max_steps, steps);
         mean_steps += (f64)steps / trials;
         sum_sqr_steps += steps*steps;
