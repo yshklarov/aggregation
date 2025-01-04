@@ -245,8 +245,9 @@ void evolve(world *wld) {
     u32 nclusters = clusters.size();
 
     // Move each cluster, checking for collisions and merging.
+    //u32 surplus_motion = 0;
     for (u32 j = 0; j < nclusters; ++j) {
-        cluster &cj = clusters[j];
+        cluster *cj = &clusters[j];
 
         // We need this instead of 0 to deal with C modulo operator shenanigans.
         int dx = wld->w;
@@ -258,26 +259,25 @@ void evolve(world *wld) {
         case 2: dy += 1; break;
         case 3: dy -= 1; break;
         }
-        for (auto &p : cj.points) {
+        for (auto &p : cj->points) {
             p.x = (p.x + dx) % wld->w;
             p.y = (p.y + dy) % wld->h;
         }
 
         // TODO Buggy: When AABBs move across X/Y axis, this can break.
-        //cj.bounds.xmin += dx;
-        //cj.bounds.xmax += dx;
-        //cj.bounds.ymin += dy;
-        //cj.bounds.ymax += dy;
+        //cj->bounds.xmin += dx;
+        //cj->bounds.xmax += dx;
+        //cj->bounds.ymin += dy;
+        //cj->bounds.ymax += dy;
 
         // For now, just re-generate AABBs at every step -- this is quite slow, but better than nothing.
-        cj.bounds = make_aabb(cj.points);
+        cj->bounds = make_aabb(cj->points);
 
         // Check for collisions with other clusters, and merge if needed.
 
         // Note: It's simpler to check for collisions here, rather than first moving all the clusters and then checking
         // for collisions. If we checked for collisions after moving all clusters, we could end up with "overlap" where
         // two clusters move onto one another simultaneously, in which case we'd need to undo one or more translations.
-/*
         for (u32 k = 0; k < nclusters; ++k) {
             // Clusters of index k < j have already moved.
             // Cluster of index k == j is the one we've moved just now.
@@ -285,27 +285,43 @@ void evolve(world *wld) {
             if (k == j) {
                 continue;
             }
-            cluster &ck = clusters[k];
-            if (contact(cj, ck, wld->w, wld->h)) {
-                if (cj.points.size() < ck.points.size()) {
+            cluster *ck = &clusters[k];
+            if (contact(*cj, *ck, wld->w, wld->h)) {
+                if (cj->points.size() < ck->points.size()) {
                     // Keep the color of the larger cluster.
-                    cj.color = ck.color;
+                    cj->color = ck->color;
                 }
-                cj.points.insert(cj.points.begin(), ck.points.begin(), ck.points.end());
+                cj->points.insert(cj->points.end(), ck->points.begin(), ck->points.end());
+
                 // TODO Smarter AABB merging.
-                //cj.bounds = merge_aabb(cj.bounds, ck.bounds);
+                //cj->bounds = merge_aabb(cj->bounds, ck->bounds);
+                cj->bounds = make_aabb(cj->points);
+
+                // Note that this wastes cluster k's thermal energy for this step when k > j.
                 clusters.erase(clusters.begin() + k);
-                --nclusters;
-                if (k  < j) {
+                if (k < j) {
+                    // Index moved; repair it.
                     --j;
-                    --k;
+                    cj = &clusters[j];
                 }
+                //else {
+                //    // Cluster k has yet to move, but we've already merged it into cluster j. "Save" the energy,
+                //    // and move cluster j again.
+                //    ++surplus_motion;
+                //}
+                --k;
+                --nclusters;
             }
-        }*/
+        }
+        //if (surplus_motion > 0) {
+        //    --surplus_motion;
+        //    --j;
+        //}
     }
 
+    // The old way: Move all clusters first, and then check for collisions. This can result in clusters overlapping.
     // Check clusters for collisions, and merge if needed.
-
+    /*
     nclusters = clusters.size();
     for (u32 j = 0; j < nclusters; ++j) {
         for (u32 k = j+1; k < nclusters; ++k) {
@@ -327,6 +343,7 @@ void evolve(world *wld) {
             }
         }
     }
+    */
 }
 
 void render(const world *wld, const fenster *f) {

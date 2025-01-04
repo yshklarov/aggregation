@@ -38,6 +38,7 @@ def create_plot(sizes, means, stddevs):
     
     # Customize the plot
     plt.xlabel('N (Grid is N×N)', fontsize=12)
+    plt.xticks(sizes, fontsize=8)
     plt.ylabel('Number of Steps', fontsize=12)
     plt.title('Mean steps to 90% aggregation for 10% density', fontsize=14)
     plt.grid(True, linestyle='--', alpha=0.7)
