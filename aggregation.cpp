@@ -107,8 +107,6 @@ taabb make_taabb(std::vector<point> points, i32 w, i32 h) {
         return { .xmin = points[0].x, .xmax = points[0].x,
                  .ymin = points[0].y, .ymax = points[0].y };
     }
-    // TODO Save more time for tiny collections (fall back on make_aabb algorithm, perhaps)? Must first check whether
-    // that is actually significantly faster.
 
     // Bitmaps.
     std::vector<u8> xs(w, 0);
@@ -337,6 +335,7 @@ void evolve(world *wld) {
         cj->bounds.ymax %= wld->h;
 
         // Check for collisions with other clusters, and merge if needed.
+        // TODO Speed this up: Use a spacial data structure so we don't have to check n^2 pairs for collision.
 
         // Note: It's simpler to check for collisions here, rather than first moving all the clusters and then checking
         // for collisions. If we checked for collisions after moving all clusters, we could end up with "overlap" where
