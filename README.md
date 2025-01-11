@@ -20,8 +20,8 @@ Here is a snapshot of a 1000x1000 simulation in progress.
 Results
 -------
 
-This plot shows the number of time steps required to achieve a large cluster of at least 90% density, as a function of
-lattice size, with 10% density. Each data point is a mean of 10,000 trials.
+This plot shows the number of time steps required to achieve a large cluster containing at least 90% of the total mass,
+as a function of lattice size, with 10% initial matter density. Each data point is a mean of 10,000 simulation trials.
 
 ![results](results/results_10000_trials_three_densities.png)
 
@@ -29,5 +29,17 @@ lattice size, with 10% density. Each data point is a mean of 10,000 trials.
 Running
 -------
 
-On Linux, run 'make' to build. To build on other platforms, refer to the
+On Linux, run `make` to build. To build on other platforms, refer to the
 [fenster readme](https://github.com/zserge/fenster).
+
+Then, run:
+
+    $  aggregation <width> <height> <density> <threshold> <trials>
+
+        width, height: Size of grid, e.g., 100 by 100
+        density: Initial proportion of cells with matter, e.g., 0.1. Must be between 0 and 1.
+        threshold: The target mass proportion for the largest cluster, e.g., 0.9. Must be
+            between 0 and 1.
+        trials: The number of simulation runs to perform. If this is 1, then the simulation
+            will be displayed visually; if it is greater than 1, statistics will be printed
+            to the console only.
